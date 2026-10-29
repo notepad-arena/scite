@@ -1773,6 +1773,31 @@ void SciTEWin::DropFiles(HDROP hdrop) {
 	}
 }
 
+namespace {
+
+// 当通过 "Image File Execution Options" 把 SciTE 注册为 notepad.exe 的
+// Debugger 值时, Windows 并不会用 SciTE 替换 notepad, 而是以调试器方式启动:
+//     SciTE.exe "<目标映像完整路径>" <notepad 原本的参数>
+// 因此第一个参数是 C:\Windows\System32\notepad.exe 这样的映像路径, 它并不是
+// 用户想打开的文档。这里识别并忽略它, 否则每打开一次"记事本"就会多出一个
+// notepad.exe 的二进制缓冲区(标题栏出现 notepad.exe, 内容为 MZ 开头的乱码)。
+bool IsInjectedNotepadImage(const FilePath &fp) {
+	constexpr std::string_view system32Notepad = "\\system32\\notepad.exe";
+	constexpr std::string_view syswow64Notepad = "\\syswow64\\notepad.exe";
+
+	if (!fp.IsAbsolute())
+		return false;
+	const std::string argUtf8 = fp.AsUTF8();
+	const std::string_view arg = argUtf8;
+	const auto endsWith = [arg](std::string_view suffix) noexcept {
+		return arg.size() >= suffix.size() &&
+			EqualCaseInsensitive(arg.substr(arg.size() - suffix.size()), suffix);
+	};
+	return endsWith(system32Notepad) || endsWith(syswow64Notepad);
+}
+
+}
+
 /**
  * Handle simple wild-card file patterns and directory requests.
  */
@@ -1783,6 +1808,9 @@ bool SciTEWin::PreOpenCheck(const GUI::gui_string &file) {
 	const DWORD fileattributes = ::GetFileAttributes(file.c_str());
 	int nbuffers = props.GetInt("buffers");
 	FilePath fpArg(file);
+
+	if (IsInjectedNotepadImage(fpArg))
+		return true;	// IFEO 注入的目标映像路径, 不是文档
 
 	if (fileattributes != INVALID_FILE_ATTRIBUTES) {	// arg is an existing directory or filename
 		// if the command line argument is a directory, use OpenDialog()

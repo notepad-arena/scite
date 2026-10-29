@@ -404,3 +404,94 @@ nmake -f scite\win32\scite.mak
 
 MSVC 路线产物不依赖 MinGW 运行时（改用 VC 运行时），但本仓库没有 x86 的 VS 工程配置，
 32 位推荐还是走 MSYS2。
+
+---
+
+## 8. 附录：用 SciTE 替代记事本（IFEO）
+
+### 8.1 现象
+
+按常见做法把 SciTE 注册成 notepad.exe 的「调试器」后，每次打开记事本，SciTE 里
+都会多出一个 `notepad.exe` 的缓冲区（标题栏显示 `notepad.exe in C:\Windows\System32`，
+内容是 `MZ` 开头的乱码），从「缓冲区」菜单或 `Ctrl+Tab` 也能看到。
+
+### 8.2 原因
+
+`Image File Execution Options` 的 `Debugger` 值并不是「替换映像」，而是「挂调试器」。
+Windows 实际执行的是：
+
+```
+"<Debugger 路径>" "<目标映像完整路径>" <notepad 原本的命令行参数>
+```
+
+也就是 SciTE 收到的命令行是：
+
+```
+SciTE.exe "C:\Windows\System32\notepad.exe" "D:\docs\a.txt"
+```
+
+而 SciTE 在 `scite/win32/SciTEWin.cxx` 的 `wWinMain()` 里**只剥掉第一个 token（argv[0]）**，
+剩下的参数全部当作「要打开的文件」交给 `SciTEBase::ProcessCommandLine()`
+（`scite/src/SciTEBase.cxx`，非开关参数一律 `Open()`）。于是：
+
+| argv | 内容 | SciTE 的处理 |
+|---|---|---|
+| argv[0] | `C:\...\wscite\SciTE.exe` | 被 `wWinMain` 剥掉 |
+| argv[1] | `C:\Windows\System32\notepad.exe` | **被当作文档打开** ← 多余的缓冲区 |
+| argv[2] | `D:\docs\a.txt` | 正常打开 |
+
+配合默认的 `buffers=100`（`scite/src/SciTEGlobal.properties`），这个多余的二进制文档会一直留在
+缓冲区列表里；每触发一次记事本，就再叠一个。
+
+### 8.3 本仓库的修复
+
+`scite/win32/SciTEWin.cxx` 的 `PreOpenCheck()` 里增加了判断：如果参数是
+`...\System32\notepad.exe` 或 `...\SysWOW64\notepad.exe`（大小写不敏感、必须是绝对路径），
+就认为它是 IFEO 注入的目标映像并直接跳过，不当作文档打开。
+
+补丁单独留了一份，方便升级上游源码后重新应用：
+
+```bash
+git apply patches/ifeo-notepad-skip.patch      # 反向撤销: git apply -R
+```
+
+效果对比（同一台机器实测，`dist\win64\SciTE.exe`）：
+
+| 启动方式 | 修复前 | 修复后 |
+|---|---|---|
+| `SciTE.exe C:\Windows\System32\notepad.exe` | `notepad.exe in C:\Windows\System32 - SciTE` | `(Untitled) - SciTE` |
+| `SciTE.exe C:\Windows\System32\notepad.exe D:\a.txt` | `a.txt ... - SciTE [2 of 2]`（多 1 个 notepad.exe） | `a.txt ... - SciTE`（只剩 1 个文档） |
+
+### 8.4 正确的注册命令
+
+原命令里有两处路径问题：
+
+- `%LOCALAPPDATA%\..\Documents\wscite\SciTE.exe` 实际解析成
+  `C:\Users\<你>\AppData\Documents\wscite\SciTE.exe`（少了一级 `..`），该路径不存在；
+  实际安装在 `%USERPROFILE%\Documents\wscite\SciTE.exe`。
+- `SciTE.exe\"` 末尾多了一个反斜杠，引号前的反斜杠会被当作转义，路径解析会出错。
+
+`Debugger` 值只要**裸路径、不要引号、不要末尾反斜杠**：
+
+```bat
+reg add "HKLM\Software\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\notepad.exe" ^
+        /v Debugger /t REG_SZ /d "%USERPROFILE%\Documents\wscite\SciTE.exe" /f
+```
+
+PowerShell 等价写法（需要管理员权限）：
+
+```powershell
+$key = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\notepad.exe'
+New-Item -Path $key -Force | Out-Null
+Set-ItemProperty -Path $key -Name Debugger -Value "$env:USERPROFILE\Documents\wscite\SciTE.exe"
+```
+
+撤销：
+
+```bat
+reg delete "HKLM\Software\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\notepad.exe" /f
+```
+
+> 注意：`Debugger` 只是「附加调试器」，所以记事本被"接管"后，任何以 `notepad.exe`
+> 为映像启动的场景都会变成启动 SciTE，包括其他程序内部 `ShellExecute("notepad.exe")`。
+> 另外必须先把**打过补丁的** `SciTE.exe` 覆盖到 `wscite` 目录再注册，否则多余缓冲区照旧。
