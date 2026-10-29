@@ -1,0 +1,46 @@
+# ===========================================================================
+# SciTE / Scintilla / Lexilla —— MSYS2 (MinGW-w64) 构建忽略规则
+#
+# 构建方式见 README.md：
+#   ./build-win32.sh          → 产物 dist/win32
+#   ./build-win64.sh          → 产物 dist/win64
+# 三个组件共用同一批目标文件目录，因此 *.o 等中间文件统一忽略。
+# ===========================================================================
+
+# ---------- 编译中间文件 ----------
+*.o
+*.obj
+*.res
+*.pdb
+*.ilk
+*.exp
+*.idb
+*.map
+*.tlog
+*.lastbuildstate
+*.sbr
+*.bsc
+*.aps
+*.ncb
+*.opt
+*.plg
+
+# ---------- 静态库 / 共享库 / 可执行文件 ----------
+*.a
+*.lib
+*.dll
+*.exe
+
+# ---------- 构建产物目录（打包输出） ----------
+/dist/
+
+# ---------- 各组件 bin 目录只保留版本库占位文件 ----------
+/scite/bin/*
+!/scite/bin/empty.txt
+
+/scintilla/bin/*
+!/scintilla/bin/empty.txt
+!/scintilla/bin/__init__.py
+
+/lexilla/bin/*
+!/lexilla/bin/empty.txt
