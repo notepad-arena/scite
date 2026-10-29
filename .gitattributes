@@ -1,0 +1,17 @@
+# ===========================================================================
+# 换行符规则
+#
+# 本仓库的 core.autocrlf 通常为 true, 检出时文本文件默认会变成 CRLF。
+# Shell 脚本若带 CRLF, 在 MSYS2/Git Bash 里会报 "bad interpreter: /usr/bin/env bash^M",
+# 因此 *.sh / *.nsi 强制以 LF 检出与存储。
+# ===========================================================================
+
+/.gitattributes text eol=lf
+
+*.sh   text eol=lf
+*.nsi  text eol=lf
+*.nsh  text eol=lf
+
+# Windows 批处理保持 CRLF
+*.bat  text eol=crlf
+*.cmd  text eol=crlf

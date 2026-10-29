@@ -299,9 +299,76 @@ dist/win64/                  dist/win32/
 
 ---
 
-## 6. 备选路线
+## 6. 打包安装包（NSIS）
 
-### 6.1 用 Clang 替代 GCC
+安装包由 `installer/scite.nsi` 生成，一份脚本出两个架构的安装程序（由 `/DARCH=` 切换 payload）。
+
+### 6.1 生成安装包
+
+```bash
+./build-win32.sh        # 先出 payload
+./build-win64.sh
+./package-win.sh        # 再出安装包
+```
+
+产物：
+
+```
+dist/SciTE-5.6.7-win32-setup.exe   3.7 MB   (安装后 ~18.2 MB)
+dist/SciTE-5.6.7-win64-setup.exe   3.5 MB   (安装后 ~17.5 MB)
+```
+
+- NSIS 未安装时：`winget install NSIS.NSIS` 或到 <https://nsis.sourceforge.io/> 下载；
+  脚本会自动探测 `C:\Program Files (x86)\NSIS\makensis.exe`，也可
+  `MAKENSIS=/path/to/makensis.exe ./package-win.sh`。
+- 版本号取自 `scite/src/SciTE.h` 的 `VERSION_SCITE`。
+- `./package-win.sh clean` 删除已生成的安装包。
+
+### 6.2 安装包内容
+
+| 区段 | 默认 | 说明 |
+|---|---|---|
+| Core files（必需） | ✔ | `SciTE.exe`、`Scintilla.dll`、`lexilla.dll`、93 个 `*.properties`、`License.txt`、`luaCOPYRIGHT` |
+| Documentation | ✔ | `doc/*.html / *.png / *.jpg / scite.1`（26 个文件） |
+| Explorer context menu | ✔ | 文件右键菜单「用 SciTE 编辑」（写入 64 位注册表视图，保证 64 位资源管理器可见） |
+| Single-file build (Sc1.exe) | ✘ | 仅在「Full」安装类型下默认勾选 |
+| Desktop shortcut | ✘ | 仅在「Full」下默认勾选 |
+| Add to system PATH | ✘ | 需手动勾选；卸载时会移除该条目 |
+
+安装行为：
+
+- 安装目录：x64 → `%ProgramFiles%\SciTE`，x86 → `%ProgramFiles(x86)%\SciTE`
+- 开始菜单固定为 `Programs\SciTE`，含 SciTE / 文档 / 卸载 三个快捷方式
+- 注册表：`Software\SciTE`（安装路径）、`...Uninstall\SciTE`（应用与功能条目）、
+  `App Paths\SciTE.exe`（支持 `Win+R` 直接输入 scite）
+- 界面语言：英文 + 简体中文（跟随系统）
+- 两个架构写同名注册表键，但分别在 64 / 32 位注册表视图里，**可以并存**
+
+### 6.3 静默安装 / 卸载
+
+```powershell
+# /D= 必须是最后一个参数，且不能加引号
+Start-Process .\dist\SciTE-5.6.7-win64-setup.exe -ArgumentList '/S','/D=C:\Tools\SciTE' -Wait
+Start-Process C:\Tools\SciTE\uninstall.exe -ArgumentList '/S' -Wait
+```
+
+安装包会拒绝在 32 位系统上安装 x64 版本（弹窗提示改用 win32 包）。
+
+### 6.4 实测记录
+
+| | win64 | win32 |
+|---|---|---|
+| 安装包体积 | 3.5 MB | 3.7 MB |
+| 安装后文件数 | 126（17.5 MB） | 126（18.2 MB） |
+| 已安装 exe 架构 | `pei-x86-64` | `pei-i386` |
+| 安装后可启动 | ✔ | ✔ |
+| 静默卸载残留（目录/注册表/开始菜单/右键） | 无 | 无 |
+
+---
+
+## 7. 备选路线
+
+### 7.1 用 Clang 替代 GCC
 
 ```bash
 pacman -S --needed mingw-w64-x86_64-clang        # 或 mingw-w64-i686-clang
@@ -311,7 +378,7 @@ cd ../../lexilla/src && mingw32-make CLANG=1
 cd ../../scite/win32 && mingw32-make CLANG=1
 ```
 
-### 6.2 PowerShell / cmd 里直接用 mingw32-make
+### 7.2 PowerShell / cmd 里直接用 mingw32-make
 
 `windir` 在 cmd/PowerShell 里本来就是小写可用的，不需要坑 1 的补丁：
 
@@ -325,7 +392,7 @@ cd ..\..\scite\win32 ; mingw32-make -j8 LDLIBS="-static"
 注意：PowerShell 传给原生程序会吃掉参数里的双引号，`CXXFLAGS="-static"` 这类写法建议放进
 `.ps1`/`.bat` 文件里执行，否则 make 会把 `-static` 当成额外目标。
 
-### 6.3 VS2022（MSVC）
+### 7.3 VS2022（MSVC）
 
 工程文件已带，在「x64 Native Tools Command Prompt」里：
 
